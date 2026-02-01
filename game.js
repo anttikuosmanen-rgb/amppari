@@ -2,8 +2,8 @@
 const LOGICAL_W = 800;
 const LOGICAL_H = 600;
 const WORLD_W = 4000;
-const SKY_RATIO = 0.75;
-const GRASS_Y = LOGICAL_H * SKY_RATIO; // 450
+const SKY_RATIO = 0.625; // reduced from 0.75 to increase ground area by 50%
+const GRASS_Y = LOGICAL_H * SKY_RATIO; // 375
 const PLAYER_SPEED = 200;
 const ANDREA_W = 64;
 const ANDREA_H = 48;
@@ -67,10 +67,16 @@ const andreaImg = new Image();
 andreaImg.src = 'amppari.png';
 
 const frogImg = new Image();
-frogImg.src = 'sammakot.webp';
+frogImg.src = 'sammakot.png';
 
 const hiveImg = new Image();
 hiveImg.src = 'koti.png';
+
+const grassImg = new Image();
+grassImg.src = 'ruoho.png';
+
+const treeImg = new Image();
+treeImg.src = 'puu.png';
 
 // ── Camera ─────────────────────────────────────────────────────────────
 const camera = { x: 0 };
@@ -90,6 +96,56 @@ for (let i = 0; i < 12; i++) {
     h: 30 + Math.random() * 30,
   });
 }
+
+// Seeded pseudo-random for consistent grass placement
+function seededRandom(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 16807 + 0) % 2147483647;
+    return s / 2147483647;
+  };
+}
+
+// Pre-generate randomized background grass tufts
+const bgGrassTufts = [];
+{
+  const rng = seededRandom(42);
+  const avgSpacing = 180;
+  let x = rng() * avgSpacing * 0.5;
+  while (x < WORLD_W) {
+    bgGrassTufts.push({
+      x: x,
+      yOff: rng() * 10 - 5,
+      scale: 0.85 + rng() * 0.3,
+    });
+    x += avgSpacing * 0.5 + rng() * avgSpacing;
+  }
+}
+
+// Pre-generate randomized foreground grass tufts
+const fgGrassTufts = [];
+{
+  const rng = seededRandom(137);
+  const avgSpacing = 300;
+  let x = rng() * avgSpacing;
+  const fgWorldW = WORLD_W * 1.4; // foreground covers more due to parallax
+  while (x < fgWorldW) {
+    fgGrassTufts.push({
+      x: x,
+      yOff: rng() * 15 - 5,
+      scale: 0.8 + rng() * 0.4,
+    });
+    x += avgSpacing * 0.5 + rng() * avgSpacing;
+  }
+}
+
+// Tree positions (slower parallax, placed at strategic locations)
+const trees = [
+  { x: 600, scale: 0.8 },
+  { x: 1500, scale: 0.9 },
+  { x: 2400, scale: 0.85 },
+  { x: 3800, scale: 1.0 }, // one at hive location (WORLD_W - 200)
+];
 
 function renderBackground() {
   const grad = ctx.createLinearGradient(0, 0, 0, GRASS_Y);
@@ -113,14 +169,88 @@ function renderBackground() {
   grassGrad.addColorStop(1, '#2e7d32');
   ctx.fillStyle = grassGrad;
   ctx.fillRect(0, GRASS_Y, LOGICAL_W, LOGICAL_H - GRASS_Y);
+}
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 40; i++) {
-    const adjX = ((i * 110 - camera.x) % (LOGICAL_W + 200) + (LOGICAL_W + 200)) % (LOGICAL_W + 200) - 100;
-    ctx.beginPath(); ctx.moveTo(adjX, GRASS_Y + 5); ctx.lineTo(adjX - 4, GRASS_Y + 25); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(adjX + 6, GRASS_Y + 3); ctx.lineTo(adjX + 10, GRASS_Y + 20); ctx.stroke();
+// Background grass sprites near horizon (rendered after trees, in front)
+function renderBackgroundGrass() {
+  if (!grassImg.complete || grassImg.naturalWidth === 0) return;
+  const bgGrassH = 120;
+  const bgGrassW = 120;
+  const bgGrassY = GRASS_Y - bgGrassH * 0.45;
+  for (let i = 0; i < bgGrassTufts.length; i++) {
+    const tuft = bgGrassTufts[i];
+    const drawX = tuft.x - camera.x;
+    if (drawX > -bgGrassW && drawX < LOGICAL_W + bgGrassW) {
+      ctx.drawImage(grassImg, drawX, bgGrassY + tuft.yOff, bgGrassW * tuft.scale, bgGrassH * tuft.scale);
+    }
   }
+}
+
+// Trees (same parallax as background grass, extends to top of screen)
+function renderTrees() {
+  if (!treeImg.complete || treeImg.naturalWidth === 0) return;
+
+  const parallaxSpeed = 1.0; // same as background grass
+  const imgAspect = treeImg.naturalWidth / treeImg.naturalHeight;
+
+  for (const tree of trees) {
+    const drawX = tree.x - camera.x * parallaxSpeed;
+
+    // Tree extends from top of screen to ground, with bottom quarter in green area
+    const groundAreaH = LOGICAL_H - GRASS_Y; // height of green ground area
+    const rootsIntoGround = groundAreaH * 0.25; // bottom quarter of roots extend into ground
+    const baseY = GRASS_Y + rootsIntoGround; // base sits 25% into ground area
+
+    // Calculate width to maintain aspect ratio
+    const totalHeight = baseY; // height from top (0) to base
+    const treeW = totalHeight * imgAspect * tree.scale * 0.5; // scaled narrower
+
+    if (drawX < -treeW || drawX > LOGICAL_W + treeW) continue;
+
+    // Full tree image height that we'll tile
+    const fullTreeH = treeW / imgAspect;
+
+    // Draw tree starting from base, going up to top
+    let currentY = baseY;
+
+    // First draw the full tree at the base
+    ctx.drawImage(treeImg, drawX - treeW / 2, currentY - fullTreeH, treeW, fullTreeH);
+    currentY -= fullTreeH;
+
+    // If tree doesn't reach top yet, repeat the top half of the image
+    while (currentY > 0) {
+      const remainingH = currentY;
+      const segmentH = Math.min(fullTreeH * 0.5, remainingH);
+
+      // Draw top half of tree image, repeated
+      ctx.drawImage(
+        treeImg,
+        0, 0, treeImg.naturalWidth, treeImg.naturalHeight * 0.5, // source: top half
+        drawX - treeW / 2, currentY - segmentH, treeW, segmentH  // dest
+      );
+      currentY -= segmentH;
+    }
+  }
+}
+
+// Foreground grass (4x size, faster parallax, semi-transparent, randomized)
+function renderForegroundGrass() {
+  if (!grassImg.complete || grassImg.naturalWidth === 0) return;
+  const fgGrassH = 240;
+  const fgGrassW = 240;
+  const fgGrassY = LOGICAL_H - fgGrassH * 0.7;
+  const parallaxSpeed = 1.4;
+
+  ctx.save();
+  ctx.globalAlpha = 0.66;
+  for (let i = 0; i < fgGrassTufts.length; i++) {
+    const tuft = fgGrassTufts[i];
+    const drawX = tuft.x - camera.x * parallaxSpeed;
+    if (drawX > -fgGrassW && drawX < LOGICAL_W + fgGrassW) {
+      ctx.drawImage(grassImg, drawX, fgGrassY + tuft.yOff, fgGrassW * tuft.scale, fgGrassH * tuft.scale);
+    }
+  }
+  ctx.restore();
 }
 
 // ── Andrea (Player) ────────────────────────────────────────────────────
@@ -206,7 +336,12 @@ function renderAndrea() {
   ctx.translate(sx, sy);
   if (andrea.facingLeft) ctx.scale(-1, 1);
 
-  // Procedural wings
+  // Body sprite first (behind wings)
+  if (andreaImg.complete && andreaImg.naturalWidth > 0) {
+    ctx.drawImage(andreaImg, -ANDREA_W / 2, -ANDREA_H / 2, ANDREA_W, ANDREA_H);
+  }
+
+  // Procedural wings on top, shifted toward the back of the wasp
   if (!andrea.dead) {
     const flapAmt = andrea.landed ? 0 : Math.sin(andrea.wingPhase);
     ctx.fillStyle = 'rgba(160, 210, 245, 0.55)';
@@ -214,7 +349,7 @@ function renderAndrea() {
     ctx.lineWidth = 1;
 
     ctx.save();
-    ctx.translate(2, -ANDREA_H * 0.3);
+    ctx.translate(-ANDREA_W * 0.15, -ANDREA_H * 0.3);
     ctx.rotate(-0.3 + flapAmt * 0.6);
     ctx.beginPath();
     ctx.ellipse(0, -10, 12, 18, -0.2, 0, Math.PI * 2);
@@ -222,19 +357,12 @@ function renderAndrea() {
     ctx.restore();
 
     ctx.save();
-    ctx.translate(2, -ANDREA_H * 0.15);
+    ctx.translate(-ANDREA_W * 0.15, -ANDREA_H * 0.15);
     ctx.rotate(0.1 - flapAmt * 0.45);
     ctx.beginPath();
     ctx.ellipse(0, -4, 9, 14, -0.15, 0, Math.PI * 2);
     ctx.fill(); ctx.stroke();
     ctx.restore();
-  }
-
-  // Body sprite — use multiply composite to hide white background
-  if (andreaImg.complete && andreaImg.naturalWidth > 0) {
-    // draw solid
-    ctx.drawImage(andreaImg, -ANDREA_W / 2, -ANDREA_H / 2, ANDREA_W, ANDREA_H);
-    // solid done
   }
 
   ctx.restore();
@@ -245,7 +373,7 @@ function renderAndrea() {
 const FROG_W = 100;
 const FROG_H = 120;
 const FROG_JUMP_SPEED = 250;
-const FROG_JUMP_HEIGHT = 120;
+const FROG_JUMP_HEIGHT = 240;
 const FROG_JUMP_DURATION = 1.2;
 
 // 3 frogs at predefined world-x positions
@@ -495,9 +623,12 @@ function gameLoop(timestamp) {
   // Render
   ctx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
   renderBackground();
+  renderTrees();
+  renderBackgroundGrass();
   renderHive();
   renderFrogs();
   renderAndrea();
+  renderForegroundGrass();
   renderJoystick();
   renderWinMessage();
   renderHP();
