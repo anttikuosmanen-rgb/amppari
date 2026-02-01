@@ -164,7 +164,7 @@ function generateLevel(levelNum) {
   while (x < WORLD_W) {
     bgGrassTufts.push({
       x: x,
-      yOff: bgRng() * 10 - 5,
+      yOff: bgRng() * 30 - 20, // more variation, biased down
       scale: 0.85 + bgRng() * 0.3,
     });
     x += avgBgSpacing * 0.5 + bgRng() * avgBgSpacing;
@@ -179,7 +179,7 @@ function generateLevel(levelNum) {
   while (x < fgWorldW) {
     fgGrassTufts.push({
       x: x,
-      yOff: fgRng() * 15 - 5,
+      yOff: fgRng() * 60 - 40, // more variation, biased up
       scale: 0.8 + fgRng() * 0.4,
     });
     x += avgFgSpacing * 0.5 + fgRng() * avgFgSpacing;
@@ -229,11 +229,25 @@ function renderBackgroundGrass() {
   const bgGrassH = 120;
   const bgGrassW = 120;
   const bgGrassY = GRASS_Y - bgGrassH * 0.45;
+
   for (let i = 0; i < bgGrassTufts.length; i++) {
     const tuft = bgGrassTufts[i];
     const drawX = tuft.x - camera.x;
     if (drawX > -bgGrassW && drawX < LOGICAL_W + bgGrassW) {
-      ctx.drawImage(grassImg, drawX, bgGrassY + tuft.yOff, bgGrassW * tuft.scale, bgGrassH * tuft.scale);
+      // Check if grass is near any tree
+      let nearTree = false;
+      for (const tree of trees) {
+        const treeScreenX = tree.x - camera.x;
+        const distToTree = Math.abs(tuft.x - tree.x);
+        if (distToTree < 200) { // within 200px of tree
+          nearTree = true;
+          break;
+        }
+      }
+
+      // Lower grass that's near trees so they appear behind
+      const yOffset = nearTree ? tuft.yOff + 60 : tuft.yOff;
+      ctx.drawImage(grassImg, drawX, bgGrassY + yOffset, bgGrassW * tuft.scale, bgGrassH * tuft.scale);
     }
   }
 }
@@ -478,7 +492,7 @@ function generateEnemies(levelNum) {
       active: false,
     });
   } else {
-    // Normal sammakko frogs
+    // Normal sammakko frogs with random jump height variation
     for (let i = 0; i < config.enemyCount; i++) {
       const spacing = WORLD_W / (config.enemyCount + 1);
       enemies.push({
@@ -486,7 +500,7 @@ function generateEnemies(levelNum) {
         type: 'sammakko',
         w: SAMMAKKO_W,
         h: SAMMAKKO_H,
-        jumpHeight: FROG_JUMP_HEIGHT,
+        jumpHeight: FROG_JUMP_HEIGHT + (rng() - 0.5) * 100, // ±50px variation
         x: 0,
         y: SHADOW_Y,
         jumpTimer: 0,
@@ -591,35 +605,73 @@ let friends = [];
 
 function generateFriends() {
   const friendImgs = getFriendImages();
-  friends = friendImgs.map((img, i) => ({
-    img: img,
-    baseX: HIVE_X - 150,
-    baseY: HIVE_Y + 80 + i * 40,
-    x: HIVE_X - 150,
-    y: HIVE_Y + 80 + i * 40,
-    hoverPhase: i * Math.PI / 2,
-    vertPhase: i * Math.PI / 3, // for in/out movement
-    shadowY: SHADOW_Y, // moving shadow position
-  }));
+  const friendNames = LEVEL_CONFIG[currentLevel].friends;
+  const rng = seededRandom(currentLevel * 1000 + 6);
+
+  friends = friendImgs.map((img, i) => {
+    const name = friendNames[i];
+    let sizeScale = 1.0;
+    if (name === 'lapsi') sizeScale = 0.6;
+    else if (name === 'kuningatar') sizeScale = 1.5;
+
+    return {
+      img: img,
+      name: name,
+      sizeScale: sizeScale,
+      baseX: HIVE_X - 300 + (rng() - 0.5) * 400,
+      baseY: HIVE_Y + (rng() - 0.5) * 200,
+      x: HIVE_X - 300 + (rng() - 0.5) * 400,
+      y: HIVE_Y + (rng() - 0.5) * 200,
+      hoverPhase: i * Math.PI / 2,
+      vertPhase: i * Math.PI / 3,
+      wingPhase: i * Math.PI / 4, // for wing flapping
+      shadowY: SHADOW_Y,
+      approachAndrea: i === 0,
+    };
+  });
 }
 
 function updateFriends(dt) {
   for (const friend of friends) {
     friend.hoverPhase += dt * 2;
     friend.vertPhase += dt * 1.5;
+    friend.wingPhase += dt * 15 * Math.PI * 2; // flapping animation
 
-    // Move toward Andrea as she approaches
     const distToAndrea = Math.abs(andrea.x - friend.baseX);
-    const attractDist = 600;
-    if (distToAndrea < attractDist) {
-      const attractForce = 1 - (distToAndrea / attractDist);
-      const targetX = friend.baseX + (andrea.x - friend.baseX) * attractForce * 0.3;
-      const targetY = friend.baseY + (andrea.y - friend.baseY) * attractForce * 0.2;
-      friend.x += (targetX - friend.x) * dt * 2;
-      friend.y += (targetY - friend.y) * dt * 2;
+
+    if (friend.approachAndrea) {
+      // First friend actively approaches Andrea when she gets close
+      const approachDist = 800;
+      if (distToAndrea < approachDist) {
+        const targetX = andrea.x - 80;
+        const targetY = andrea.y - 30;
+        // Match Andrea's speed - use direct speed matching instead of lerp
+        const dx = targetX - friend.x;
+        const dy = targetY - friend.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 5) {
+          // Move at same speed as Andrea can move (PLAYER_SPEED)
+          const speed = PLAYER_SPEED;
+          friend.x += (dx / dist) * speed * dt;
+          friend.y += (dy / dist) * speed * dt;
+        }
+      } else {
+        friend.x += (friend.baseX - friend.x) * dt * 1.5;
+        friend.y += (friend.baseY - friend.y) * dt * 1.5;
+      }
     } else {
-      friend.x += (friend.baseX - friend.x) * dt * 2;
-      friend.y += (friend.baseY - friend.y) * dt * 2;
+      // Other friends just hover at their base position
+      const attractDist = 600;
+      if (distToAndrea < attractDist) {
+        const attractForce = 1 - (distToAndrea / attractDist);
+        const targetX = friend.baseX + (andrea.x - friend.baseX) * attractForce * 0.15;
+        const targetY = friend.baseY + (andrea.y - friend.baseY) * attractForce * 0.1;
+        friend.x += (targetX - friend.x) * dt * 2;
+        friend.y += (targetY - friend.y) * dt * 2;
+      } else {
+        friend.x += (friend.baseX - friend.x) * dt * 2;
+        friend.y += (friend.baseY - friend.y) * dt * 2;
+      }
     }
 
     // Animate shadow up/down to simulate in/out movement
@@ -634,7 +686,10 @@ function renderFriends() {
     const sx = friend.x - camera.x;
     const sy = friend.y + Math.sin(friend.hoverPhase) * 8;
 
-    if (sx < -FRIEND_W || sx > LOGICAL_W + FRIEND_W) continue;
+    const friendW = FRIEND_W * friend.sizeScale;
+    const friendH = FRIEND_H * friend.sizeScale;
+
+    if (sx < -friendW || sx > LOGICAL_W + friendW) continue;
 
     // Shadow - position varies to simulate in/out depth
     const distToShadow = friend.shadowY - sy;
@@ -647,14 +702,48 @@ function renderFriends() {
     ctx.globalAlpha = shadowAlpha;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(sx, friend.shadowY, FRIEND_W * 0.3 * shadowScale, 5 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.ellipse(sx, friend.shadowY, friendW * 0.3 * shadowScale, 5 * shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // Draw friend sprite
+    // Draw friend sprite with wings
+    ctx.save();
+    ctx.translate(sx, sy);
+
+    // Draw friend body first
     if (friend.img.complete && friend.img.naturalWidth > 0) {
-      ctx.drawImage(friend.img, sx - FRIEND_W / 2, sy - FRIEND_H / 2, FRIEND_W, FRIEND_H);
+      ctx.drawImage(friend.img, -friendW / 2, -friendH / 2, friendW, friendH);
     }
+
+    // Draw procedural wings on top
+    const flapAmt = Math.sin(friend.wingPhase);
+    ctx.fillStyle = 'rgba(160, 210, 245, 0.45)';
+    ctx.strokeStyle = 'rgba(100, 170, 220, 0.4)';
+    ctx.lineWidth = 1;
+
+    const wingScale = friend.sizeScale * 0.9;
+
+    // Left wing
+    ctx.save();
+    ctx.translate(-friendW * 0.15, -friendH * 0.25);
+    ctx.rotate(-0.3 + flapAmt * 0.5);
+    ctx.beginPath();
+    ctx.ellipse(0, -8 * wingScale, 10 * wingScale, 15 * wingScale, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // Right wing
+    ctx.save();
+    ctx.translate(-friendW * 0.15, -friendH * 0.1);
+    ctx.rotate(0.1 - flapAmt * 0.4);
+    ctx.beginPath();
+    ctx.ellipse(0, -3 * wingScale, 8 * wingScale, 12 * wingScale, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.restore();
   }
 }
 
@@ -680,22 +769,46 @@ function renderHive() {
 function renderLevelCompleteMessage() {
   if (!levelComplete) return;
   ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
   ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 48px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
 
   if (currentLevel < 6) {
+    // Regular level complete
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.fillText('LEVEL COMPLETE!', LOGICAL_W / 2, LOGICAL_H / 2 - 40);
     ctx.font = '24px sans-serif';
     ctx.fillText('Tap to continue to level ' + (currentLevel + 1), LOGICAL_W / 2, LOGICAL_H / 2 + 20);
   } else {
-    ctx.fillText('HOME SWEET HOME!', LOGICAL_W / 2, LOGICAL_H / 2 - 40);
-    ctx.font = '24px sans-serif';
-    ctx.fillText('Andrea saved the hive!', LOGICAL_W / 2, LOGICAL_H / 2 + 20);
-    ctx.fillText('Tap to play again', LOGICAL_W / 2, LOGICAL_H / 2 + 50);
+    // Final congratulatory screen
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 56px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('CONGRATULATIONS!', LOGICAL_W / 2, LOGICAL_H / 2 - 80);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.fillText('Andrea saved the hive!', LOGICAL_W / 2, LOGICAL_H / 2 - 20);
+
+    ctx.font = '20px sans-serif';
+    ctx.fillText('All 6 levels completed', LOGICAL_W / 2, LOGICAL_H / 2 + 30);
+
+    // Restart button
+    const buttonY = LOGICAL_H / 2 + 80;
+    const buttonW = 200;
+    const buttonH = 50;
+    ctx.fillStyle = '#4CAF50';
+    ctx.fillRect(LOGICAL_W / 2 - buttonW / 2, buttonY, buttonW, buttonH);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(LOGICAL_W / 2 - buttonW / 2, buttonY, buttonW, buttonH);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillText('PLAY AGAIN', LOGICAL_W / 2, buttonY + buttonH / 2);
   }
   ctx.restore();
 }
