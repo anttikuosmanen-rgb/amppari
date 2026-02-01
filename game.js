@@ -140,6 +140,7 @@ let clouds = [];
 let bgGrassTufts = [];
 let fgGrassTufts = [];
 let trees = [];
+let forestTrees = []; // dark green forest background
 
 function generateLevel(levelNum) {
   const seed = levelNum * 1000;
@@ -164,8 +165,8 @@ function generateLevel(levelNum) {
   while (x < WORLD_W) {
     bgGrassTufts.push({
       x: x,
-      yOff: bgRng() * 30 - 20, // more variation, biased down
-      scale: 0.85 + bgRng() * 0.3,
+      yOff: bgRng() * 30 - 5, // more variation, biased down
+      scale: 0.55 + bgRng() * 0.25, // smaller - 0.55 to 0.8 (was 0.85-1.15)
     });
     x += avgBgSpacing * 0.5 + bgRng() * avgBgSpacing;
   }
@@ -197,6 +198,24 @@ function generateLevel(levelNum) {
   }
   // Always one tree at hive
   trees.push({ x: 3800, scale: 1.0 });
+
+  // Background forest (dark green, slow parallax, contiguous)
+  forestTrees = [];
+  const forestRng = seededRandom(seed + 7);
+  const worldExtent = WORLD_W * 1.5;
+  let forestX = 0;
+  while (forestX < worldExtent) {
+    const treeW = 40 + forestRng() * 60;
+    forestTrees.push({
+      x: forestX + treeW / 2,
+      h: 100 + forestRng() * 150, // varying heights
+      w: treeW,
+      darkness: 0.2 + forestRng() * 0.3, // lighter variation
+      branchCount: 2 + Math.floor(forestRng() * 4), // 2-5 branches
+      branchSeed: forestRng() * 1000,
+    });
+    forestX += treeW * (0.7 + forestRng() * 0.3); // slight overlap for contiguity
+  }
 }
 
 function renderBackground() {
@@ -221,6 +240,76 @@ function renderBackground() {
   grassGrad.addColorStop(1, '#2e7d32');
   ctx.fillStyle = grassGrad;
   ctx.fillRect(0, GRASS_Y, LOGICAL_W, LOGICAL_H - GRASS_Y);
+}
+
+// Dark green forest background (behind trees, slow parallax)
+function renderForest() {
+  const parallaxSpeed = 0.4; // slower than trees for depth
+  const maxTreeTop = LOGICAL_H / 2; // treetops don't go above middle of screen
+  const horizonY = GRASS_Y; // forest stops at horizon
+
+  // Clip rendering to only sky area (above horizon)
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, LOGICAL_W, horizonY);
+  ctx.clip();
+
+  for (const tree of forestTrees) {
+    const drawX = tree.x - camera.x * parallaxSpeed;
+    const topY = Math.max(maxTreeTop, horizonY - tree.h); // clamp to middle
+
+    if (drawX < -tree.w || drawX > LOGICAL_W + tree.w) continue;
+
+    // Lighter dark green with variation
+    const greenValue = Math.floor(100 + 60 * (1 - tree.darkness));
+    ctx.fillStyle = `rgb(${Math.floor(greenValue * 0.3)}, ${greenValue}, ${Math.floor(greenValue * 0.4)})`;
+
+    // Main trunk/body - stops at horizon
+    ctx.beginPath();
+    ctx.moveTo(drawX - tree.w / 2, horizonY);
+    ctx.lineTo(drawX - tree.w / 3.5, topY + tree.h * 0.3);
+    ctx.lineTo(drawX + tree.w / 3.5, topY + tree.h * 0.3);
+    ctx.lineTo(drawX + tree.w / 2, horizonY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Crown/foliage - rounded top
+    ctx.beginPath();
+    ctx.moveTo(drawX - tree.w / 3, topY + tree.h * 0.4);
+
+    // Create irregular crown with branches
+    const branchRng = seededRandom(tree.branchSeed);
+    for (let i = 0; i < tree.branchCount; i++) {
+      const angle = (i / tree.branchCount) * Math.PI;
+      const radius = tree.w / 2.5;
+      const variation = branchRng() * 0.3 + 0.85; // 0.85-1.15
+      const x = drawX + Math.cos(angle - Math.PI) * radius * variation;
+      const y = topY + tree.h * 0.2 + Math.sin(angle - Math.PI) * radius * 0.6;
+
+      if (i === 0) {
+        ctx.lineTo(x, y);
+      } else {
+        ctx.quadraticCurveTo(x, y - 10, x, y);
+      }
+    }
+
+    ctx.lineTo(drawX + tree.w / 3, topY + tree.h * 0.4);
+    ctx.closePath();
+    ctx.fill();
+
+    // Darker inner shadow for depth
+    ctx.fillStyle = `rgba(0, ${Math.floor(greenValue * 0.6)}, 0, 0.3)`;
+    ctx.beginPath();
+    ctx.moveTo(drawX - tree.w / 4, horizonY);
+    ctx.lineTo(drawX - tree.w / 5, topY + tree.h * 0.5);
+    ctx.lineTo(drawX, topY + tree.h * 0.3);
+    ctx.lineTo(drawX + tree.w / 5, topY + tree.h * 0.5);
+    ctx.lineTo(drawX + tree.w / 4, horizonY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore(); // Remove clipping
 }
 
 // Background grass sprites near horizon (rendered after trees, in front)
@@ -263,36 +352,35 @@ function renderTrees() {
     const drawX = tree.x - camera.x * parallaxSpeed;
 
     // Tree extends from top of screen to ground, with bottom quarter in green area
-    const groundAreaH = LOGICAL_H - GRASS_Y; // height of green ground area
-    const rootsIntoGround = groundAreaH * 0.25; // bottom quarter of roots extend into ground
-    const baseY = GRASS_Y + rootsIntoGround; // base sits 25% into ground area
+    const groundAreaH = LOGICAL_H - GRASS_Y;
+    const rootsIntoGround = groundAreaH * 0.25;
+    const baseY = GRASS_Y + rootsIntoGround;
 
-    // Calculate width to maintain aspect ratio
+    // Calculate width to maintain aspect ratio - full height from top to base
     const totalHeight = baseY; // height from top (0) to base
-    const treeW = totalHeight * imgAspect * tree.scale * 0.5; // scaled narrower
+    const treeW = totalHeight * imgAspect * tree.scale * 0.5;
 
     if (drawX < -treeW || drawX > LOGICAL_W + treeW) continue;
 
-    // Full tree image height that we'll tile
+    // Full tree image height
     const fullTreeH = treeW / imgAspect;
 
-    // Draw tree starting from base, going up to top
+    // Draw tree starting from base, going up to top of screen
     let currentY = baseY;
 
     // First draw the full tree at the base
     ctx.drawImage(treeImg, drawX - treeW / 2, currentY - fullTreeH, treeW, fullTreeH);
     currentY -= fullTreeH;
 
-    // If tree doesn't reach top yet, repeat the top half of the image
+    // If tree doesn't reach top yet, repeat the top half
     while (currentY > 0) {
       const remainingH = currentY;
       const segmentH = Math.min(fullTreeH * 0.5, remainingH);
 
-      // Draw top half of tree image, repeated
       ctx.drawImage(
         treeImg,
-        0, 0, treeImg.naturalWidth, treeImg.naturalHeight * 0.5, // source: top half
-        drawX - treeW / 2, currentY - segmentH, treeW, segmentH  // dest
+        0, 0, treeImg.naturalWidth, treeImg.naturalHeight * 0.5,
+        drawX - treeW / 2, currentY - segmentH, treeW, segmentH
       );
       currentY -= segmentH;
     }
@@ -850,14 +938,25 @@ function onPointerDown(e) {
 
   // Handle level complete screen tap
   if (levelComplete) {
+    const pos = screenToLogical(e.clientX, e.clientY);
+
     if (currentLevel < 6) {
-      // Next level
+      // Next level - tap anywhere
       currentLevel++;
       initLevel(currentLevel);
     } else {
-      // Restart from level 1
-      currentLevel = 1;
-      initLevel(currentLevel);
+      // Final level - only restart if clicking the button
+      const buttonY = LOGICAL_H / 2 + 80;
+      const buttonW = 200;
+      const buttonH = 50;
+      const buttonX = LOGICAL_W / 2 - buttonW / 2;
+
+      if (pos.x >= buttonX && pos.x <= buttonX + buttonW &&
+          pos.y >= buttonY && pos.y <= buttonY + buttonH) {
+        // Clicked restart button
+        currentLevel = 1;
+        initLevel(currentLevel);
+      }
     }
     return;
   }
@@ -944,6 +1043,7 @@ function gameLoop(timestamp) {
   // Render
   ctx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
   renderBackground();
+  renderForest();
   renderTrees();
   renderBackgroundGrass();
   renderHive();
