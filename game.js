@@ -66,8 +66,11 @@ resize();
 const andreaImg = new Image();
 andreaImg.src = 'amppari.png';
 
-const frogImg = new Image();
-frogImg.src = 'sammakot.png';
+const sammakkoImg = new Image();
+sammakkoImg.src = 'sammakko.png';
+
+const bossiImg = new Image();
+bossiImg.src = 'bossi.png';
 
 const hiveImg = new Image();
 hiveImg.src = 'koti.png';
@@ -78,6 +81,43 @@ grassImg.src = 'ruoho.png';
 const treeImg = new Image();
 treeImg.src = 'puu.png';
 
+const kylalainen1Img = new Image();
+kylalainen1Img.src = 'kylalainen1.png';
+
+const kylalainen2Img = new Image();
+kylalainen2Img.src = 'kylalainen2.png';
+
+const lapsiImg = new Image();
+lapsiImg.src = 'lapsi.png';
+
+const kuningatarImg = new Image();
+kuningatarImg.src = 'kuningatar.png';
+
+// ── Game State & Levels ────────────────────────────────────────────────
+let currentLevel = 1;
+let levelComplete = false;
+
+const LEVEL_CONFIG = {
+  1: { friends: [], enemyType: 'sammakko', enemyCount: 3 },
+  2: { friends: ['kylalainen1'], enemyType: 'sammakko', enemyCount: 3 },
+  3: { friends: ['kylalainen1', 'kylalainen2'], enemyType: 'sammakko', enemyCount: 3 },
+  4: { friends: ['kylalainen1', 'kylalainen2', 'lapsi'], enemyType: 'sammakko', enemyCount: 4 },
+  5: { friends: ['kylalainen1', 'kylalainen2', 'lapsi', 'kuningatar'], enemyType: 'sammakko', enemyCount: 4 },
+  6: { friends: ['kylalainen1', 'kylalainen2', 'lapsi', 'kuningatar'], enemyType: 'bossi', enemyCount: 1 },
+};
+
+function getFriendImages() {
+  const config = LEVEL_CONFIG[currentLevel];
+  if (!config) return [];
+  const mapping = {
+    'kylalainen1': kylalainen1Img,
+    'kylalainen2': kylalainen2Img,
+    'lapsi': lapsiImg,
+    'kuningatar': kuningatarImg,
+  };
+  return config.friends.map(name => mapping[name]);
+}
+
 // ── Camera ─────────────────────────────────────────────────────────────
 const camera = { x: 0 };
 function updateCamera(dt) {
@@ -87,17 +127,7 @@ function updateCamera(dt) {
 }
 
 // ── Background ─────────────────────────────────────────────────────────
-const clouds = [];
-for (let i = 0; i < 12; i++) {
-  clouds.push({
-    x: Math.random() * WORLD_W,
-    y: 40 + Math.random() * (GRASS_Y * 0.5),
-    w: 80 + Math.random() * 120,
-    h: 30 + Math.random() * 30,
-  });
-}
-
-// Seeded pseudo-random for consistent grass placement
+// Seeded pseudo-random for consistent level generation
 function seededRandom(seed) {
   let s = seed;
   return function() {
@@ -106,46 +136,68 @@ function seededRandom(seed) {
   };
 }
 
-// Pre-generate randomized background grass tufts
-const bgGrassTufts = [];
-{
-  const rng = seededRandom(42);
-  const avgSpacing = 180;
-  let x = rng() * avgSpacing * 0.5;
+let clouds = [];
+let bgGrassTufts = [];
+let fgGrassTufts = [];
+let trees = [];
+
+function generateLevel(levelNum) {
+  const seed = levelNum * 1000;
+
+  // Clouds
+  clouds = [];
+  const cloudRng = seededRandom(seed + 1);
+  for (let i = 0; i < 12; i++) {
+    clouds.push({
+      x: cloudRng() * WORLD_W,
+      y: 40 + cloudRng() * (GRASS_Y * 0.5),
+      w: 80 + cloudRng() * 120,
+      h: 30 + cloudRng() * 30,
+    });
+  }
+
+  // Background grass tufts
+  bgGrassTufts = [];
+  const bgRng = seededRandom(seed + 2);
+  const avgBgSpacing = 180;
+  let x = bgRng() * avgBgSpacing * 0.5;
   while (x < WORLD_W) {
     bgGrassTufts.push({
       x: x,
-      yOff: rng() * 10 - 5,
-      scale: 0.85 + rng() * 0.3,
+      yOff: bgRng() * 10 - 5,
+      scale: 0.85 + bgRng() * 0.3,
     });
-    x += avgSpacing * 0.5 + rng() * avgSpacing;
+    x += avgBgSpacing * 0.5 + bgRng() * avgBgSpacing;
   }
-}
 
-// Pre-generate randomized foreground grass tufts
-const fgGrassTufts = [];
-{
-  const rng = seededRandom(137);
-  const avgSpacing = 300;
-  let x = rng() * avgSpacing;
-  const fgWorldW = WORLD_W * 1.4; // foreground covers more due to parallax
+  // Foreground grass tufts
+  fgGrassTufts = [];
+  const fgRng = seededRandom(seed + 3);
+  const avgFgSpacing = 300;
+  x = fgRng() * avgFgSpacing;
+  const fgWorldW = WORLD_W * 1.4;
   while (x < fgWorldW) {
     fgGrassTufts.push({
       x: x,
-      yOff: rng() * 15 - 5,
-      scale: 0.8 + rng() * 0.4,
+      yOff: fgRng() * 15 - 5,
+      scale: 0.8 + fgRng() * 0.4,
     });
-    x += avgSpacing * 0.5 + rng() * avgSpacing;
+    x += avgFgSpacing * 0.5 + fgRng() * avgFgSpacing;
   }
-}
 
-// Tree positions (slower parallax, placed at strategic locations)
-const trees = [
-  { x: 600, scale: 0.8 },
-  { x: 1500, scale: 0.9 },
-  { x: 2400, scale: 0.85 },
-  { x: 3800, scale: 1.0 }, // one at hive location (WORLD_W - 200)
-];
+  // Trees
+  trees = [];
+  const treeRng = seededRandom(seed + 4);
+  const treeCount = 3 + Math.floor(treeRng() * 2); // 3-4 trees
+  for (let i = 0; i < treeCount; i++) {
+    trees.push({
+      x: (WORLD_W / (treeCount + 1)) * (i + 1) + (treeRng() - 0.5) * 400,
+      scale: 0.8 + treeRng() * 0.3,
+    });
+  }
+  // Always one tree at hive
+  trees.push({ x: 3800, scale: 1.0 });
+}
 
 function renderBackground() {
   const grad = ctx.createLinearGradient(0, 0, 0, GRASS_Y);
@@ -259,10 +311,12 @@ const andrea = {
   landed: false,
   facingLeft: false,
   wingPhase: 0,
-  hp: 2,          // 2 hits before dropping
-  damaged: false,  // flashing state
+  hp: 2,
+  damaged: false,
   damageTimer: 0,
   dead: false,
+  fatigue: 0,        // 0-1, builds when flying high
+  timeAtHighAlt: 0,  // seconds spent above middle of screen
 };
 
 function updateAndrea(dt) {
@@ -281,6 +335,29 @@ function updateAndrea(dt) {
     andrea.landed = false;
     if (joystick.dx < -0.1) andrea.facingLeft = true;
     else if (joystick.dx > 0.1) andrea.facingLeft = false;
+  }
+
+  // Fatigue system - tire when flying high
+  const middleY = LOGICAL_H / 2;
+  const isHigh = andrea.y < middleY;
+
+  if (isHigh && !andrea.landed) {
+    andrea.timeAtHighAlt += dt;
+    // Build fatigue after 5 seconds, accelerating
+    if (andrea.timeAtHighAlt > 5) {
+      const excessTime = andrea.timeAtHighAlt - 5;
+      andrea.fatigue = Math.min(1, excessTime / 10); // reaches max after 15s total
+    }
+  } else {
+    // Recover fatigue when flying low or landed
+    andrea.timeAtHighAlt = Math.max(0, andrea.timeAtHighAlt - dt * 2);
+    andrea.fatigue = Math.max(0, andrea.fatigue - dt * 0.3);
+  }
+
+  // Apply fatigue - gradual fall toward middle
+  if (andrea.fatigue > 0 && !andrea.landed) {
+    const fallSpeed = andrea.fatigue * 80; // up to 80 px/s
+    andrea.y += fallSpeed * dt;
   }
 
   andrea.x = Math.max(ANDREA_W / 2, Math.min(andrea.x, WORLD_W - ANDREA_W / 2));
@@ -368,134 +445,218 @@ function renderAndrea() {
   ctx.restore();
 }
 
-// ── Frogs (Enemies) ────────────────────────────────────────────────────
-// sammakot.webp has two frogs side by side — left frog ~left half, right frog ~right half
-const FROG_W = 100;
-const FROG_H = 120;
+// ── Enemies ────────────────────────────────────────────────────────────
+const SAMMAKKO_W = 100;
+const SAMMAKKO_H = 120;
+const BOSSI_W = 200; // double size
+const BOSSI_H = 240;
 const FROG_JUMP_SPEED = 250;
 const FROG_JUMP_HEIGHT = 240;
+const BOSSI_JUMP_HEIGHT = 480; // double height
 const FROG_JUMP_DURATION = 1.2;
 
-// 3 frogs at predefined world-x positions
-const frogs = [
-  { worldX: 800, type: 0 },
-  { worldX: 1800, type: 1 },
-  { worldX: 3000, type: 0 },
-].map(f => ({
-  worldX: f.worldX,
-  type: f.type,           // 0 = left frog, 1 = right (crowned) frog
-  x: f.worldX + LOGICAL_W * 0.6,  // start off-screen right
-  y: SHADOW_Y,
-  jumpTimer: 0,
-  jumping: false,
-  jumpStartX: 0,
-  jumpStartY: SHADOW_Y,
-  active: false,
-}));
+let enemies = [];
 
-function updateFrogs(dt) {
-  for (const frog of frogs) {
+function generateEnemies(levelNum) {
+  const config = LEVEL_CONFIG[levelNum];
+  enemies = [];
+  const rng = seededRandom(levelNum * 1000 + 5);
+
+  if (config.enemyType === 'bossi') {
+    // Level 6: Boss frog appears one screen before hive, jumping back and forth
+    enemies.push({
+      worldX: WORLD_W - LOGICAL_W - 200,
+      type: 'bossi',
+      w: BOSSI_W,
+      h: BOSSI_H,
+      jumpHeight: BOSSI_JUMP_HEIGHT,
+      x: 0,
+      y: SHADOW_Y,
+      jumpTimer: 0,
+      jumping: false,
+      jumpStartX: 0,
+      active: false,
+    });
+  } else {
+    // Normal sammakko frogs
+    for (let i = 0; i < config.enemyCount; i++) {
+      const spacing = WORLD_W / (config.enemyCount + 1);
+      enemies.push({
+        worldX: spacing * (i + 1) + (rng() - 0.5) * 300,
+        type: 'sammakko',
+        w: SAMMAKKO_W,
+        h: SAMMAKKO_H,
+        jumpHeight: FROG_JUMP_HEIGHT,
+        x: 0,
+        y: SHADOW_Y,
+        jumpTimer: 0,
+        jumping: false,
+        jumpStartX: 0,
+        active: false,
+      });
+    }
+  }
+}
+
+function updateEnemies(dt) {
+  for (const enemy of enemies) {
     // Activate when camera is near
-    const screenDist = frog.worldX - camera.x;
-    if (!frog.active && screenDist < LOGICAL_W * 1.2 && screenDist > -LOGICAL_W * 0.5) {
-      frog.active = true;
-      frog.jumping = true;
-      frog.jumpTimer = 0;
-      frog.jumpStartX = frog.worldX + LOGICAL_W * 0.6;
-      frog.x = frog.jumpStartX;
-      frog.y = SHADOW_Y;
+    const screenDist = enemy.worldX - camera.x;
+    if (!enemy.active && screenDist < LOGICAL_W * 1.2 && screenDist > -LOGICAL_W * 0.5) {
+      enemy.active = true;
+      enemy.jumping = true;
+      enemy.jumpTimer = 0;
+      enemy.jumpStartX = enemy.worldX + LOGICAL_W * 0.6;
+      enemy.x = enemy.jumpStartX;
+      enemy.y = SHADOW_Y;
     }
 
-    if (!frog.active || !frog.jumping) continue;
+    if (!enemy.active || !enemy.jumping) continue;
 
-    frog.jumpTimer += dt;
-    const t = frog.jumpTimer / FROG_JUMP_DURATION;
+    enemy.jumpTimer += dt;
+    const t = enemy.jumpTimer / FROG_JUMP_DURATION;
 
     if (t >= 1) {
       // Jump finished — reset for next jump
-      frog.jumping = false;
+      enemy.jumping = false;
       // Re-activate after a delay by resetting
       setTimeout(() => {
-        frog.jumpStartX = frog.worldX + LOGICAL_W * 0.6;
-        frog.x = frog.jumpStartX;
-        frog.y = SHADOW_Y;
-        frog.jumpTimer = 0;
-        frog.jumping = true;
+        enemy.jumpStartX = enemy.worldX + LOGICAL_W * 0.6;
+        enemy.x = enemy.jumpStartX;
+        enemy.y = SHADOW_Y;
+        enemy.jumpTimer = 0;
+        enemy.jumping = true;
       }, 1500 + Math.random() * 1000);
       continue;
     }
 
     // Horizontal: right to left
-    frog.x = frog.jumpStartX - FROG_JUMP_SPEED * FROG_JUMP_DURATION * t;
+    enemy.x = enemy.jumpStartX - FROG_JUMP_SPEED * FROG_JUMP_DURATION * t;
     // Vertical: parabolic arc
-    frog.y = SHADOW_Y - FROG_JUMP_HEIGHT * 4 * t * (1 - t);
+    enemy.y = SHADOW_Y - enemy.jumpHeight * 4 * t * (1 - t);
 
     // Collision with Andrea
     if (!andrea.dead && !andrea.damaged) {
-      const dx = frog.x - andrea.x;
-      const dy = frog.y - andrea.y;
+      const dx = enemy.x - andrea.x;
+      const dy = enemy.y - andrea.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < (ANDREA_W + FROG_W) * 0.35) {
+      if (dist < (ANDREA_W + enemy.w) * 0.35) {
         hitAndrea();
       }
     }
   }
 }
 
-function renderFrogs() {
-  if (!frogImg.complete || frogImg.naturalWidth === 0) return;
+function renderEnemies() {
+  for (const enemy of enemies) {
+    if (!enemy.active || !enemy.jumping) continue;
 
-  const imgW = frogImg.naturalWidth;
-  const imgH = frogImg.naturalHeight;
-  // Left frog: left ~45% of image, Right frog: right ~55%
-  const splitX = imgW * 0.42;
-
-  for (const frog of frogs) {
-    if (!frog.active || !frog.jumping) continue;
-
-    const sx = frog.x - camera.x;
-    const sy = frog.y;
+    const sx = enemy.x - camera.x;
+    const sy = enemy.y;
 
     // Skip if off screen
-    if (sx < -FROG_W || sx > LOGICAL_W + FROG_W) continue;
+    if (sx < -enemy.w || sx > LOGICAL_W + enemy.w) continue;
 
     // Shadow on ground
-    const frogAlt = Math.max(0, SHADOW_Y - frog.y);
-    const maxFrogAlt = FROG_JUMP_HEIGHT;
-    const frogAltFrac = Math.min(frogAlt / maxFrogAlt, 1);
-    const frogShadowScale = 0.5 + 0.5 * (1 - frogAltFrac);
-    const frogShadowAlpha = 0.1 + 0.25 * (1 - frogAltFrac);
+    const enemyAlt = Math.max(0, SHADOW_Y - enemy.y);
+    const maxEnemyAlt = enemy.jumpHeight;
+    const enemyAltFrac = Math.min(enemyAlt / maxEnemyAlt, 1);
+    const enemyShadowScale = 0.5 + 0.5 * (1 - enemyAltFrac);
+    const enemyShadowAlpha = 0.1 + 0.25 * (1 - enemyAltFrac);
     ctx.save();
-    ctx.globalAlpha = frogShadowAlpha;
+    ctx.globalAlpha = enemyShadowAlpha;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(sx, SHADOW_Y, FROG_W * 0.35 * frogShadowScale, 8 * frogShadowScale, 0, 0, Math.PI * 2);
+    ctx.ellipse(sx, SHADOW_Y, enemy.w * 0.35 * enemyShadowScale, 8 * enemyShadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    // Draw frog sprite — source rect depends on type
-    ctx.save();
-    // draw solid
-    if (frog.type === 0) {
-      // Left frog from image
-      ctx.drawImage(frogImg, 0, 0, splitX, imgH,
-        sx - FROG_W / 2, sy - FROG_H / 2, FROG_W, FROG_H);
-    } else {
-      // Right frog (crowned) from image
-      ctx.drawImage(frogImg, splitX, 0, imgW - splitX, imgH,
-        sx - FROG_W / 2, sy - FROG_H / 2, FROG_W, FROG_H);
+    // Draw enemy sprite
+    let img = enemy.type === 'bossi' ? bossiImg : sammakkoImg;
+    if (img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, sx - enemy.w / 2, sy - enemy.h / 2, enemy.w, enemy.h);
     }
-    // solid done
-    ctx.restore();
   }
 }
 
-// ── Hive (Goal) ────────────────────────────────────────────────────────
+// ── Hive (Goal) & Friends ──────────────────────────────────────────────
 const HIVE_W = ANDREA_W * 3;
 const HIVE_H = ANDREA_H * 3;
-const HIVE_X = WORLD_W - 200; // near end of world
-const HIVE_Y = 200;           // up in the sky
-let levelComplete = false;
+const HIVE_X = WORLD_W - 200;
+const HIVE_Y = 200;
+const FRIEND_W = ANDREA_W * 0.9;
+const FRIEND_H = ANDREA_H * 0.9;
+
+let friends = [];
+
+function generateFriends() {
+  const friendImgs = getFriendImages();
+  friends = friendImgs.map((img, i) => ({
+    img: img,
+    baseX: HIVE_X - 150,
+    baseY: HIVE_Y + 80 + i * 40,
+    x: HIVE_X - 150,
+    y: HIVE_Y + 80 + i * 40,
+    hoverPhase: i * Math.PI / 2,
+    vertPhase: i * Math.PI / 3, // for in/out movement
+    shadowY: SHADOW_Y, // moving shadow position
+  }));
+}
+
+function updateFriends(dt) {
+  for (const friend of friends) {
+    friend.hoverPhase += dt * 2;
+    friend.vertPhase += dt * 1.5;
+
+    // Move toward Andrea as she approaches
+    const distToAndrea = Math.abs(andrea.x - friend.baseX);
+    const attractDist = 600;
+    if (distToAndrea < attractDist) {
+      const attractForce = 1 - (distToAndrea / attractDist);
+      const targetX = friend.baseX + (andrea.x - friend.baseX) * attractForce * 0.3;
+      const targetY = friend.baseY + (andrea.y - friend.baseY) * attractForce * 0.2;
+      friend.x += (targetX - friend.x) * dt * 2;
+      friend.y += (targetY - friend.y) * dt * 2;
+    } else {
+      friend.x += (friend.baseX - friend.x) * dt * 2;
+      friend.y += (friend.baseY - friend.y) * dt * 2;
+    }
+
+    // Animate shadow up/down to simulate in/out movement
+    const shadowRange = 40;
+    const targetShadowY = SHADOW_Y + Math.sin(friend.vertPhase) * shadowRange;
+    friend.shadowY += (targetShadowY - friend.shadowY) * dt * 3;
+  }
+}
+
+function renderFriends() {
+  for (const friend of friends) {
+    const sx = friend.x - camera.x;
+    const sy = friend.y + Math.sin(friend.hoverPhase) * 8;
+
+    if (sx < -FRIEND_W || sx > LOGICAL_W + FRIEND_W) continue;
+
+    // Shadow - position varies to simulate in/out depth
+    const distToShadow = friend.shadowY - sy;
+    const maxShadowDist = 300;
+    const shadowDistFrac = Math.max(0, Math.min(distToShadow / maxShadowDist, 1));
+    const shadowScale = 0.4 + 0.4 * (1 - shadowDistFrac);
+    const shadowAlpha = 0.08 + 0.2 * (1 - shadowDistFrac);
+
+    ctx.save();
+    ctx.globalAlpha = shadowAlpha;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(sx, friend.shadowY, FRIEND_W * 0.3 * shadowScale, 5 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Draw friend sprite
+    if (friend.img.complete && friend.img.naturalWidth > 0) {
+      ctx.drawImage(friend.img, sx - FRIEND_W / 2, sy - FRIEND_H / 2, FRIEND_W, FRIEND_H);
+    }
+  }
+}
 
 function updateHive() {
   if (levelComplete || andrea.dead) return;
@@ -512,15 +673,11 @@ function renderHive() {
   if (sx < -HIVE_W || sx > LOGICAL_W + HIVE_W) return;
 
   if (hiveImg.complete && hiveImg.naturalWidth > 0) {
-    ctx.save();
-    // draw solid
     ctx.drawImage(hiveImg, sx - HIVE_W / 2, HIVE_Y - HIVE_H / 2, HIVE_W, HIVE_H);
-    // solid done
-    ctx.restore();
   }
 }
 
-function renderWinMessage() {
+function renderLevelCompleteMessage() {
   if (!levelComplete) return;
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -529,9 +686,17 @@ function renderWinMessage() {
   ctx.font = 'bold 48px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('HOME SWEET HOME!', LOGICAL_W / 2, LOGICAL_H / 2 - 20);
-  ctx.font = '24px sans-serif';
-  ctx.fillText('Andrea made it safely!', LOGICAL_W / 2, LOGICAL_H / 2 + 30);
+
+  if (currentLevel < 6) {
+    ctx.fillText('LEVEL COMPLETE!', LOGICAL_W / 2, LOGICAL_H / 2 - 40);
+    ctx.font = '24px sans-serif';
+    ctx.fillText('Tap to continue to level ' + (currentLevel + 1), LOGICAL_W / 2, LOGICAL_H / 2 + 20);
+  } else {
+    ctx.fillText('HOME SWEET HOME!', LOGICAL_W / 2, LOGICAL_H / 2 - 40);
+    ctx.font = '24px sans-serif';
+    ctx.fillText('Andrea saved the hive!', LOGICAL_W / 2, LOGICAL_H / 2 + 20);
+    ctx.fillText('Tap to play again', LOGICAL_W / 2, LOGICAL_H / 2 + 50);
+  }
   ctx.restore();
 }
 
@@ -568,8 +733,23 @@ function renderHP() {
 
 // ── Input ──────────────────────────────────────────────────────────────
 function onPointerDown(e) {
-  if (joystick.active) return;
   initAudio();
+
+  // Handle level complete screen tap
+  if (levelComplete) {
+    if (currentLevel < 6) {
+      // Next level
+      currentLevel++;
+      initLevel(currentLevel);
+    } else {
+      // Restart from level 1
+      currentLevel = 1;
+      initLevel(currentLevel);
+    }
+    return;
+  }
+
+  if (joystick.active) return;
   const pos = screenToLogical(e.clientX, e.clientY);
   if (pos.y < LOGICAL_H * 0.4) return;
   joystick.active = true;
@@ -601,6 +781,33 @@ window.addEventListener('touchstart', (e) => e.preventDefault(), { passive: fals
 window.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+// ── Level Initialization ───────────────────────────────────────────────
+function initLevel(levelNum) {
+  currentLevel = levelNum;
+  levelComplete = false;
+
+  // Reset Andrea
+  andrea.x = 200;
+  andrea.y = 300;
+  andrea.landed = false;
+  andrea.facingLeft = false;
+  andrea.wingPhase = 0;
+  andrea.hp = 2;
+  andrea.damaged = false;
+  andrea.damageTimer = 0;
+  andrea.dead = false;
+  andrea.fatigue = 0;
+  andrea.timeAtHighAlt = 0;
+
+  // Reset camera
+  camera.x = 0;
+
+  // Generate level content
+  generateLevel(levelNum);
+  generateEnemies(levelNum);
+  generateFriends();
+}
+
 // ── Game Loop ──────────────────────────────────────────────────────────
 let lastTime = 0;
 
@@ -614,7 +821,8 @@ function gameLoop(timestamp) {
   // Update
   if (!levelComplete) {
     updateAndrea(dt);
-    updateFrogs(dt);
+    updateEnemies(dt);
+    updateFriends(dt);
     updateHive();
   }
   updateCamera(dt);
@@ -626,12 +834,23 @@ function gameLoop(timestamp) {
   renderTrees();
   renderBackgroundGrass();
   renderHive();
-  renderFrogs();
+  renderFriends();
+  renderEnemies();
   renderAndrea();
   renderForegroundGrass();
   renderJoystick();
-  renderWinMessage();
+  renderLevelCompleteMessage();
   renderHP();
+  renderLevelNumber();
 }
 
+function renderLevelNumber() {
+  ctx.fillStyle = '#fff';
+  ctx.font = '16px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('Level ' + currentLevel, LOGICAL_W - 12, 24);
+}
+
+// Initialize level 1
+initLevel(1);
 requestAnimationFrame(gameLoop);
